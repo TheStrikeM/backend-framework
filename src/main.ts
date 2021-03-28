@@ -15,39 +15,62 @@ namespace Starting {
             string: s => s,
             number: n => n.toString(),
             undefined: () => '404',
-            function: (fn, req, res) => JSON.stringify(fn(req, res))
+            function: (fn, par, client) => JSON.stringify(fn(client, par))
         }
-
-        private static matching: object = {}
+        static _matching: any[] = []
     }
 
-    export class Server {
+    export class Server extends Config {
         static start() {
+            Utils.createMatchingRoutes()
             const server = http.createServer((req, res) => {
-                const data = Config.router[req.url]
-                const result = Config._types[typeof data](data, req, res)
-                res.end(result)
-            }).listen(Config.port, Config.startCallback)
+                res.end(Utils.routerWatcher({ req, res }).toString())
+            }).listen(this.port, this.startCallback)
 
-            server.on('error', (err: any) => {
-                err.code == 'EACCES' ?
-                    console.log(`No access to http://${Config.hostname}:${Config.port}/`) : console.log(err.code)
-            })
-
+            console.log(this._matching)
             Config._server = server
         }
     }
 
-    class Utils {
-        static routerWatcher(client) {}
+    class Utils extends Config {
+        static routerWatcher(client) {
+            let par;
+            let route = this.router[client.req.url];
+            if (!route) {
+                for (let i = 0; i < this._matching.length; i++) {
+                    const rx = this._matching[i];
+                    par = client.req.url.match(rx[0]);
+                    if (par) {
+                        par.shift();
+                        route = rx[1];
+                        break;
+                    }
+                }
+            }
+            const type = typeof route;
+            const renderer = this._types[type];
+            return renderer(route, par, client);
+        }
+        static createMatchingRoutes() {
+            for(const item in this.router) {
+                if(item.includes('*')) {
+                    const rx = new RegExp(item.replace('*', '(.*)'));
+                    const route = this.router[item]
+                    this._matching.push([rx, route])
+
+                    delete this.router[item];
+                }
+            }
+        }
     }
 }
 
 Starting.Config.router = {
     '/': 'Hello world!',
-    '/func': (req, res) => {
-        return { url: req.url }
-    }
+    '/func': (client, par) => {
+        return { url: client.req.url }
+    },
+    '/sex/*': (client, par) => `parameter = ${par[0]}`
 }
 
 Starting.Server.start()
